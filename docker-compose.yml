@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: green-bond-app
+    restart: unless-stopped
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - DEFAULT_MODEL_NAME=${DEFAULT_MODEL_NAME:-deepseek-chat}
+      - DB_PATH=${DB_PATH:-/app/data/simulation_results.db}
+      - PRODUCTION=${PRODUCTION:-true}
+      - LLM_TRUST_ENV=${LLM_TRUST_ENV:-true}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-60.0}
+    volumes:
+      - ./data:/app/data          # SQLite 数据持久化
+    expose:
+      - "8504"                    # 仅内网暴露，不直接对外
+    networks:
+      - green-bond-net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8504/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  nginx:
+    image: nginx:alpine
+    container_name: green-bond-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro             # SSL 证书目录
+      - ./htpasswd:/etc/nginx/.htpasswd:ro  # 基础鉴权文件
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - green-bond-net
+
+networks:
+  green-bond-net:
+    driver: bridge
