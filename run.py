@@ -28,6 +28,9 @@ def check_requirements():
         import streamlit
         import plotly
         import pandas
+        import matplotlib
+        import seaborn
+        import jieba
         print("✅ 所有依赖包已安装")
         return True
     except ImportError as e:
@@ -44,8 +47,7 @@ def check_config():
             print("⚠️  警告: LLM_API_KEY 未配置或为默认值")
             print("  规则引擎模式不需要 API Key，如需 LLM 决策请在 .env 中设置有效的 API Key")
         else:
-            masked_key = config.LLM_API_KEY[:8] + "***" if len(config.LLM_API_KEY) > 8 else "***"
-            print(f"✅ API Key 已配置 ({masked_key})")
+            print("✅ API Key 已配置")
             print(f"   Base URL: {config.LLM_BASE_URL}")
             print(f"   Model: {config.DEFAULT_MODEL_NAME}")
         return True
@@ -54,9 +56,117 @@ def check_config():
         return False
 
 
+def run_preset_cli():
+    """对正式名单逐家运行预设场景，并输出可复核的 JSON。"""
+    import argparse
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+
+    import config
+    from engine import analyze_results, load_enterprises_from_df, validate_enterprise_dataframe
+    from scenarios import paired_changes, run_preset_experiment
+
+    parser = argparse.ArgumentParser(description="从第一组名单运行 P0–P6")
+    parser.add_argument("--preset", required=True, type=Path, help="企业名单 CSV 或 XLSX")
+    parser.add_argument("--prefiltered", action="store_true", help="文件已确认仅含愿意发行企业")
+    parser.add_argument("--llm", action="store_true", help="使用 LLM 模式")
+    parser.add_argument("--seed", type=int, default=config.RANDOM_SEED)
+    parser.add_argument("--output", required=True, type=Path, help="新的 JSON 输出文件")
+    args = parser.parse_args()
+    if args.output.exists():
+        parser.error("输出文件已存在，请选择新文件名")
+    if not args.output.parent.is_dir():
+        parser.error("输出文件所在目录不存在")
+    if args.llm and config.LLM_API_KEY in ("", "1"):
+        parser.error("LLM 模式需要先在本地配置可用的 LLM_API_KEY")
+
+    try:
+        if args.preset.suffix.lower() == ".csv":
+            frame = pd.read_csv(args.preset, dtype=str, keep_default_na=False)
+        elif args.preset.suffix.lower() == ".xlsx":
+            frame = pd.read_excel(args.preset, dtype=str, keep_default_na=False)
+        else:
+            parser.error("企业名单应为 CSV 或 XLSX")
+    except (OSError, ValueError) as error:
+        parser.error(f"无法读取名单：{error}")
+    valid, message, processed = validate_enterprise_dataframe(
+        frame, willing_only=True, prefiltered=args.prefiltered,
+    )
+    if not valid:
+        parser.error(message)
+
+    print(message, flush=True)
+    scenarios = run_preset_experiment(load_enterprises_from_df(processed), use_llm=args.llm, seed=args.seed)
+    summary = {}
+    for name, records in scenarios.items():
+        stats = analyze_results(records)
+        stats["gained"], stats["lost"] = paired_changes(scenarios["P0"], records)
+        summary[name] = stats
+    output = json.dumps({"summary": summary, "scenarios": scenarios}, ensure_ascii=False, indent=2)
+    with args.output.open("x", encoding="utf-8") as handle:
+        handle.write(output)
+    print(f"已保存 {sum(map(len, scenarios.values()))} 条模拟记录：{args.output}")
+
+
+def run_analysis_cli():
+    """Analyze an existing JSON export without rerunning simulations."""
+    import argparse
+    import json
+    from pathlib import Path
+    from analysis import SOURCES
+    from engine import STAGES
+    from reporting import render_report
+
+    parser = argparse.ArgumentParser(description="从模拟 JSON 导出静态图表和文本分析 ZIP")
+    parser.add_argument("--analyze", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path, help="新建的 .zip 文件")
+    parser.add_argument("--scope", choices=["failures", "all"], default="failures")
+    parser.add_argument("--source", choices=["all", *SOURCES], default="all")
+    parser.add_argument("--stage", choices=["all", *[code for code, _, _ in STAGES]], default="all")
+    parser.add_argument("--top-n", type=int, choices=range(1, 101), default=20, metavar="1-100")
+    parser.add_argument("--stopwords", nargs="*", default=[])
+    args = parser.parse_args()
+    if args.output.suffix.lower() != ".zip" or args.output.exists() or not args.output.parent.is_dir():
+        parser.error("输出应为已有目录中的新 .zip 文件")
+    try:
+        payload = json.loads(args.analyze.read_text(encoding="utf-8-sig"))
+        if isinstance(payload, list):
+            scenarios = {}
+            for record in payload:
+                scenarios.setdefault(record.get("scenario_name") or "export", []).append(record)
+        else:
+            scenarios = payload["scenarios"]
+        if not isinstance(scenarios, dict) or not scenarios:
+            raise ValueError("输入缺少场景记录")
+        for records in scenarios.values():
+            if not isinstance(records, list) or not records or any(
+                not isinstance(record, dict) or record.get("final_result") not in ("success", "failed")
+                for record in records
+            ):
+                raise ValueError("各场景必须包含有效的模拟结果列表")
+        report = render_report(scenarios, scope=args.scope, source=args.source, stage=args.stage,
+                               top_n=args.top_n, extra_stopwords=tuple(args.stopwords))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        parser.error(f"无法生成报告：{error}")
+    with args.output.open("xb") as handle:
+        handle.write(report["archive"])
+    print(f"已导出分析报告：{args.output}")
+    if report["metadata"]["font"] is None:
+        print("当前环境缺少中文绘图字体，请安装 Noto Sans CJK 后重新导出。")
+
+
 def main():
     print("🌿 启动绿色债券发行链路模拟系统...")
     print("=" * 50)
+
+    if "--analyze" in sys.argv:
+        run_analysis_cli()
+        return
+    if "--preset" in sys.argv:
+        run_preset_cli()
+        return
 
     if not check_requirements():
         return
@@ -113,6 +223,7 @@ def main():
         print("  python run.py --cli N --llm       命令行批量运行 N 次（LLM 模式）")
         print("  python engine.py                  运行单次规则引擎模拟")
         print("  python engine.py --llm            运行单次 LLM 模式模拟")
+        print("  python run.py --analyze results.json --output report.zip  导出图表和文本分析")
         return
 
     # 默认：启动 Streamlit

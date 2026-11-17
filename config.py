@@ -19,5 +19,6 @@ _default_db = str(APP_DIR / "data" / "simulation_results.db")
 DB_PATH = os.getenv("DB_PATH", _default_db)
 
 # ===== 模拟实验默认参数 =====
+LLM_JSON_TEMPERATURE = 0.3
 DEFAULT_SIMULATION_ROUNDS = 200       # 每个场景默认运行次数
 RANDOM_SEED = 42                      # 随机种子（保证可复现）

@@ -71,7 +71,7 @@ class LLMClient:
             return f"[API_ERROR] {str(e)}"
 
     def call_with_json_output(self, system_prompt: str, user_prompt: str,
-                              temperature: float = 0.3) -> str:
+                              temperature: float = config.LLM_JSON_TEMPERATURE) -> str:
         """
         期望返回 JSON 格式的调用（用于结构化决策结果）
         提示词中应要求模型返回 JSON

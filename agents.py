@@ -109,7 +109,8 @@ class CertifierAgent:
 3. 概率判定：根据项目绿色程度和材料完整度，按概率判定通过/不通过
 
 请严格按照规则做出判定，并以 JSON 格式返回结果：
-{{"passed": true/false, "reason": "判定理由", "green_level_assessment": "high/medium/low"}}"""
+{{"decision": "approved/conditional/rejected", "reason": "判定理由", "conditions": ["需补充的材料"]}}
+有条件通过须列出补件条件，其余情况 conditions 为空数组。"""
 
     def review(self, enterprise_context: str) -> str:
         """调用 LLM 进行审核判定"""
@@ -154,9 +155,7 @@ class RegulatorAgent:
         return f"""你是一名{self.type_info['name']}的审核官员。
 你的核心职责是审核企业绿色债券发行的合规性。
 
-【监管红线（刚性）】
-- 资产负债率超过80% → 直接驳回
-- 未满足连续两年盈利 → 直接驳回
+程序已处理模拟硬约束。根据财务、合规材料及前序审核意见完成剩余判断。
 
 【审核要点】
 1. 企业资质：信用评级、行业属性、资产规模
@@ -165,7 +164,8 @@ class RegulatorAgent:
 4. 融资方案：发行规模合理性、资金用途清晰度
 
 请严格按照规则做出判定，并以 JSON 格式返回结果：
-{{"passed": true/false, "reason": "判定理由", "concerns": ["关注点1", "关注点2"]}}"""
+{{"decision": "approved/conditional/rejected", "reason": "判定理由", "conditions": ["需补充的材料"]}}
+有条件通过须列出补件条件，其余情况 conditions 为空数组。"""
 
     def review(self, enterprise_context: str, certifier_result: str) -> str:
         """调用 LLM 进行监管审核"""
@@ -182,7 +182,7 @@ class RegulatorAgent:
 UNDERWRITER_TYPES = {
     "aggressive": {
         "name": "激进型承销商",
-        "traits": "偏向低利率定价以提升认购吸引力，追求发行成功率",
+        "traits": "愿意承担较高承销风险，综合权衡发行人融资成本和投资者需求",
         "style_multiplier": -0.003,
     },
     "moderate": {
@@ -211,13 +211,14 @@ class UnderwriterAgent:
 定价风格：{self.type_info['traits']}
 
 【定价参考因素】
-1. 基准利率（当前3.5%）
+1. 输入中提供的市场基准收益率和定价利差
 2. 企业信用评级和风险溢价
 3. 绿色债券溢价扣减（绿色程度越高，利率可越低）
 4. 市场流动性环境
 
 请根据企业实际情况，确定发行利率和路演策略，以 JSON 返回：
-{{"issue_rate": 0.045, "rate_rationale": "定价理由", "roadshow_strategy": "路演策略描述"}}"""
+{{"decision": "underwrite/declined", "issue_rate": 0.045, "rate_rationale": "承销或拒绝的理由", "roadshow_strategy": "路演策略描述"}}
+拒绝承销时省略 issue_rate。"""
 
     def price_and_roadshow(self, enterprise_context: str, certifier_result: str,
                            regulator_result: str) -> str:
@@ -277,13 +278,18 @@ class InvestorAgent:
 {{"will_subscribe": true/false, "subscribe_amount": 5.0, "decision_rationale": "决策理由"}}"""
 
     def make_decision(self, enterprise_context: str, underwriter_result: str,
-                      issue_rate: float) -> str:
+                      issue_rate: float, *, certifier_result: str = "",
+                      regulator_result: str = "") -> str:
         """调用 LLM 进行认购决策"""
         return self.llm.call_with_json_output(
             self.get_system_prompt(),
             f"""请做出认购决策：
 【企业信息】
 {enterprise_context}
+【绿色认证结果】
+{certifier_result}
+【监管审核结果】
+{regulator_result}
 【承销商定价与路演结果】
 {underwriter_result}
 当前发行利率：{issue_rate:.2%}"""

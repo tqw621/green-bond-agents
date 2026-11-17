@@ -1,0 +1,26 @@
+attempt_date,issuer,security_or_tranche,outcome,term,issuer_rating,planned_cny_100m,issued_cny_100m,effective_orders_cny_100m,compliant_orders_cny_100m,coupon,sample_role,benchmark_date,china_gov_2y,china_gov_5y,notes,announcement_url,secondary_source_url
+2025-12-25,三峡集团,132580152,发行,5年,AAA,20,20,23,34.4,0.0179,校准,2025-12-24,0.013401000000000001,0.015991,固定利率,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3259003&mode=save&priority=0,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202512/t20251226_1700175.html
+2025-12-25,三峡集团,2025第十期,取消,,,20,,,,,仅记录,,,,公告称市场变化,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3258912&mode=save&priority=0,
+2026-03-05,国网新源,132680017,发行,3年,AAA,2,2,2.2,3.9,0.0178,校准,2026-03-04,0.013349,0.015286,固定利率；有效申购含主承销商自营获配,https://www.shibor.org/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3292167&mode=save&priority=0,https://www.chinamoney.com.cn/chinese/ltss1/20260306/3292099.html
+2026-03-19,天津北清电力,102680990,发行,3+2年,,5,5,5.1,16.1,0.0199,仅记录,,,,含权,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3302381&mode=save&priority=0,
+2026-03-20,现代牧业,102680992,发行,2+N年,,5,5,5.2,5.7,0.025,仅记录,,,,永续；3月19–20日发行，记录区间末日,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3303692&mode=save&priority=0,
+2026-03-24,昆山水务,102681075,发行,3+N年,,4,4,4.9,14.4,0.0208,仅记录,,,,永续及可持续挂钩；初始利率,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3305496&mode=save&priority=0,
+2026-04-14,金开新能源,132680040,发行,3年,AA+,5,5,,,0.019,仅记录,,,,AA+ 超出现有代码支持评级,https://static.cninfo.com.cn/finalpage/2026-04-16/1225106263.PDF,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202604/t20260415_1764202.html
+2026-04-21,光大绿色环保,132680044,发行,3年,AAA,,10,,,0.0175,校准,2026-04-20,0.012923,0.015012000000000001,固定利率,https://www.chinamoney.com.cn/chinese/ltss1/20260423/3321769.html,
+2026-04-24,绍兴轨道交通,132680052,发行,3年,AAA,,5,,,0.0168,校准,2026-04-23,0.012549999999999999,0.014795,固定利率,https://www.chinamoney.com.cn/chinese/ltss1/20260427/3325560.html,
+2026-04-29,东莞轨道交通,132680056,发行,3年,AAA,3,3,4.3,13.6,0.0168,校准,2026-04-28,0.01264,0.014862,固定利率,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3337317&mode=save&priority=0,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202604/t20260430_1779484.html
+2026-06-30,华能水电,132680074,发行,3年,AAA,,4,,,0.0154,校准,2026-06-29,0.012362,0.014151,固定利率,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202607/t20260701_1818047.html,
+2026-07-09,光大绿色环保,132680077,发行,2年,,10,10,11.8,38.9,0.0161,仅记录,,,,未核实本期主体评级,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3374969&mode=save&priority=0,
+2026-07-17,国能大渡河,102682644,发行,3年,AAA,,20,,,0.015,验证,2026-07-16,0.012706,0.014426000000000001,固定利率,https://www.chinamoney.com.cn/chinese/ltss1/20260720/3379933.html,
+2026-07-22,赣锋锂业,102682720,发行,396日,AAA,5,5,,,0.0175,仅记录,,,,396日；流通公告列为零息计息,https://static.cninfo.com.cn/finalpage/2026-07-24/1225438329.PDF,https://www.chinamoney.com.cn/chinese/ltss1/20260723/3382847.html
+2026-07-28,中电建新能源,2026第一期,取消,3年,,5,,,,,仅记录,,,,公告称市场波动及发行目标调整；同一期次 7 月 30 日重新发行,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3386254&mode=save&priority=0,
+2026-07-30,中电建新能源,102682819,发行,3年,AAA,,5,,,0.016399999999999998,验证,2026-07-29,0.012688999999999999,0.014333,同一发行期次原计划于 7 月 28 日发行并取消，7 月 30 日重新发行,https://www.chinamoney.com.cn/chinese/ltss1/20260731/3388413.html,
+2026-08-07,碧水源,102682974,发行,2年,,5,5,,,0.019799999999999998,仅记录,,,,未核实主体评级；8月6–7日发行,https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-08-10/1070bac9-41fd-42e3-b030-a4d2dadd1b26.PDF,
+2026-08-12,雅砻江水电,102683061,发行,10年,,10,10,11.2,58.2,0.020499999999999997,仅记录,,,,同次发行品种一；超出2–5年范围,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3396497&mode=save&priority=0,
+2026-08-12,雅砻江水电,102683062,发行,15年,,5,5,6,27.4,0.022000000000000002,仅记录,,,,同次发行品种二；超出2–5年范围,https://www.chinamoney.com.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3396497&mode=save&priority=0,
+2026-09-11,成渝铁路客专,102683605,发行,5年,AAA,,10,,,0.0165,验证,2026-09-10,0.012421,0.014126000000000001,固定利率,https://www.chinamoney.org.cn/chinese/ltss1/20260915/3417665.html,
+2026-09-14,浙江华友钴业,132680096,发行,2年,AAA,,10,,,0.022000000000000002,仅记录,,,,绿色科创债；2 年期超出主比较范围,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202609/t20260915_1868028.html,
+2026-10-13,上海康恒环境,102683953,发行,2年,AA+,,4,,,0.018000000000000002,仅记录,,,,AA+ 超出现有代码支持评级,https://www.chinamoney.com.cn/chinese/ltss1/20261014/3429297.html,
+2026-10-14,国网新源,132680102,发行,5年,AAA,,10,,,0.0166,验证,2026-10-13,0.012607,0.013974,固定利率；与早期样本中的第五期为同一发行人,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202610/t20261015_1883705.html,
+2026-10-19,河钢集团,132680103,发行,3+N年,AAA,,10,,,0.0174,仅记录,,,,发行人选择权,https://www.chinamoney.com.cn/chinese/ltss1/20261020/3434382.html,
+2026-10-22,浙江吉利,132680104,发行,10年,AAA,,30,,,0.0241,仅记录,,,,绿色科创债；10 年期超出主比较范围,https://www.shclearing.cn/xxpl/jyltysgg/GN_3/202610/t20261023_1890079.html,

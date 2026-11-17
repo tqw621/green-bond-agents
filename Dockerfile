@@ -10,7 +10,7 @@ WORKDIR /app
 
 # 安装系统依赖（healthcheck 用）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    curl fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖文件（利用 Docker 层缓存）

@@ -2,12 +2,13 @@
 结果数据库模块
 存储和管理模拟实验结果
 """
+from contextlib import closing
 import sqlite3
 import json
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 import config
 
 
@@ -44,9 +45,11 @@ class SimulationDB:
 
     def _init_db(self):
         """初始化数据库表"""
-        conn = _connect(self.db_path)
-        cursor = conn.cursor()
+        with closing(_connect(self.db_path)) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            self._create_tables(conn.cursor())
 
+    def _create_tables(self, cursor):
         # 模拟实验记录表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS simulation_records (
@@ -60,6 +63,7 @@ class SimulationDB:
                 regulator_type TEXT,
                 underwriter_type TEXT,
                 investor_type TEXT,
+                run_metadata TEXT,
                 stage_1_passed INTEGER DEFAULT 0,
                 stage_1_detail TEXT,
                 stage_2_passed INTEGER DEFAULT 0,
@@ -92,23 +96,32 @@ class SimulationDB:
             )
         ''')
 
-        conn.commit()
-        conn.close()
+        columns = {row[1] for row in cursor.execute("PRAGMA table_info(simulation_records)")}
+        if "run_metadata" not in columns:
+            cursor.execute("ALTER TABLE simulation_records ADD COLUMN run_metadata TEXT")
 
     def save_result(self, result: Dict, scenario_name: str = "default"):
-        """保存单条模拟结果"""
-        conn = _connect(self.db_path)
-        cursor = conn.cursor()
+        self.save_batch([result], scenario_name)
+
+    def _insert_result(self, cursor, result, scenario_name):
+        stage_values = []
+        for stage_key in (
+            "stage_1_material", "stage_2_certifier", "stage_3_regulator",
+            "stage_4_underwriter", "stage_5_investor",
+        ):
+            stage = result.get(stage_key)
+            passed = None if stage is None else int(bool(stage.get("passed")))
+            stage_values.extend((passed, json.dumps(stage, ensure_ascii=False)))
 
         _execute_with_retry(cursor, '''
             INSERT INTO simulation_records
             (simulation_time, scenario_name, enterprise_code, enterprise_name,
              enterprise_data, certifier_type, regulator_type, underwriter_type,
-             investor_type, stage_1_passed, stage_1_detail, stage_2_passed,
+             investor_type, run_metadata, stage_1_passed, stage_1_detail, stage_2_passed,
              stage_2_detail, stage_3_passed, stage_3_detail, stage_4_passed,
              stage_4_detail, stage_5_passed, stage_5_detail, final_result,
              failure_stage, failure_reason, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             result.get("simulation_time"),
             scenario_name,
@@ -119,51 +132,62 @@ class SimulationDB:
             result.get("regulator_type"),
             result.get("underwriter_type"),
             result.get("investor_type"),
-            1 if result.get("stage_1_material", {}).get("passed") else 0,
-            json.dumps(result.get("stage_1_material", {}), ensure_ascii=False),
-            1 if result.get("stage_2_certifier", {}).get("passed") else 0,
-            json.dumps(result.get("stage_2_certifier", {}), ensure_ascii=False),
-            1 if result.get("stage_3_regulator", {}).get("passed") else 0,
-            json.dumps(result.get("stage_3_regulator", {}), ensure_ascii=False),
-            1 if result.get("stage_4_underwriter", {}).get("passed") else 0,
-            json.dumps(result.get("stage_4_underwriter", {}), ensure_ascii=False),
-            1 if result.get("stage_5_investor", {}).get("passed") else 0,
-            json.dumps(result.get("stage_5_investor", {}), ensure_ascii=False),
+            json.dumps({key: result[key] for key in ("use_llm", "model", "rule_seed", "experiment_seed", "model_temperature", "rules_version") if key in result},
+                       ensure_ascii=False),
+            *stage_values,
             result.get("final_result"),
             result.get("failure_stage"),
             result.get("failure_reason"),
             datetime.now().isoformat(),
         ))
 
-        conn.commit()
-        conn.close()
-
     def save_batch(self, results: List[Dict], scenario_name: str = "default"):
-        """批量保存模拟结果"""
-        for r in results:
-            self.save_result(r, scenario_name)
+        self.save_experiment({scenario_name: results})
+
+    def save_experiment(self, scenarios):
+        """同一批次的所有场景一同提交，写入失败时回滚。"""
+        with closing(_connect(self.db_path)) as conn, conn:
+            cursor = conn.cursor()
+            for scenario_name, records in scenarios.items():
+                for record in records:
+                    self._insert_result(cursor, record, scenario_name)
+
+    def list_scenarios(self):
+        with closing(_connect(self.db_path)) as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT scenario_name FROM simulation_records GROUP BY scenario_name ORDER BY MAX(id) DESC"
+            )]
+
+    def load_scenario(self, scenario_name):
+        with closing(_connect(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM simulation_records WHERE scenario_name = ? ORDER BY id", (scenario_name,),
+            ).fetchall()
+        keys = ("stage_1_material", "stage_2_certifier", "stage_3_regulator",
+                "stage_4_underwriter", "stage_5_investor")
+        records = []
+        for row in rows:
+            record = dict(row)
+            record["enterprise_data"] = json.loads(record["enterprise_data"] or "{}")
+            record.update(json.loads(record.pop("run_metadata") or "{}"))
+            for i, key in enumerate(keys, 1):
+                detail = json.loads(record.pop(f"stage_{i}_detail") or "null")
+                passed = record.pop(f"stage_{i}_passed")
+                if detail and "passed" not in detail:
+                    # Earlier versions stored stage details without the outer result envelope.
+                    detail = {"passed": bool(passed), "detail": detail}
+                    if str(record.get("failure_stage") or "").startswith(f"{i}_"):
+                        detail["reason"] = record.get("failure_reason") or ""
+                record[key] = detail
+            records.append(record)
+        return records
 
     def get_scenario_stats(self, scenario_name: str) -> Dict:
-        """获取指定场景的统计信息"""
-        conn = _connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            SELECT COUNT(*),
-                   SUM(CASE WHEN final_result='success' THEN 1 ELSE 0 END),
-                   failure_stage, COUNT(*) as cnt
-            FROM simulation_records
-            WHERE scenario_name = ?
-            GROUP BY failure_stage
-        ''', (scenario_name,))
-        rows = cursor.fetchall()
-        conn.close()
-
-        total = rows[0][0] if rows else 0
-        successes = rows[0][1] if rows else 0
-
-        return {
-            "total": total,
-            "successes": successes,
-            "success_rate": round(successes / total, 4) if total > 0 else 0,
-        }
+        with closing(_connect(self.db_path)) as conn:
+            total, successes = conn.execute(
+                """SELECT COUNT(*), COALESCE(SUM(final_result = 'success'), 0)
+                   FROM simulation_records WHERE scenario_name = ?""", (scenario_name,),
+            ).fetchone()
+        return {"total": total, "successes": successes,
+                "success_rate": round(successes / total, 4) if total else 0}

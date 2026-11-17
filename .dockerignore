@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 .git/
 .gitignore
+.venv/
 .claude/
 data/
 docs/
