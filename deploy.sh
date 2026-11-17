@@ -42,9 +42,7 @@ cd "$APP_DIR"
 if [ ! -f ".env" ]; then
     echo "📝 未找到 .env 文件，从 .env.example 创建..."
     cp .env.example .env
-    echo "⚠️  请编辑 .env 填入真实的 API Key: vim $APP_DIR/.env"
-    echo "   然后重新运行本脚本"
-    exit 1
+    echo "模型地址和名称可在 .env 中调整。API Key 由使用者在网页中输入。"
 fi
 
 # ---- 3. 创建数据目录 ----

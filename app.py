@@ -8,6 +8,7 @@
 - 结果统计可视化
 """
 import json
+import hashlib
 
 import streamlit as st
 import pandas as pd
@@ -17,6 +18,10 @@ from uuid import uuid4
 import config
 from analysis import SOURCES, analyze_decision_text
 from reporting import render_report
+from document_import import (
+    FIELD_LABELS, EXTRACTION_DEFAULTS, convert_text, docx_to_text,
+    export_csv, export_excel, load_reviewed_enterprises,
+)
 
 from engine import (
     generate_sample_enterprises,
@@ -44,6 +49,26 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+<style>
+.stApp { background: #f7faf8; }
+[data-testid="stSidebar"] { background: #eef5f1; border-right: 1px solid #dce8e0; }
+.block-container { max-width: 1320px; padding-top: 2.5rem; padding-bottom: 3rem; }
+h1 { font-size: 2.15rem !important; letter-spacing: -.035em; }
+h2, h3 { letter-spacing: -.02em; }
+[data-testid="stMetric"] { background: white; border: 1px solid #e0eae4; border-radius: 14px; padding: 16px 20px; }
+[data-testid="stMetricValue"] { font-size: 1.65rem; }
+[data-testid="stExpander"] { background: white; border-radius: 12px; }
+.stButton button, .stDownloadButton button { border-radius: 9px; }
+[data-baseweb="tab-list"] { gap: 1.5rem; }
+[data-baseweb="tab"] { padding-top: .75rem; padding-bottom: .75rem; }
+@media (max-width: 700px) {
+  .block-container { padding-top: 1.25rem; }
+  [data-baseweb="tab-list"] { gap: .4rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 初始化数据库
 db = SimulationDB()
 
@@ -68,57 +93,70 @@ def cached_report(scenarios, scope, source, stage, top_n, extra_stopwords):
 # 侧边栏 — 场景配置
 # ============================================================
 
-st.sidebar.title("🌿 绿色债券发行链路模拟")
+def clear_api_key():
+    st.session_state["user_api_key"] = ""
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔧 场景参数配置")
 
-certifier_type = st.sidebar.selectbox(
-    "绿色认证机构类型",
-    options=list(CERTIFIER_TYPES.keys()),
-    format_func=lambda x: CERTIFIER_TYPES[x]["name"],
-    index=1,
+def clear_extraction_key():
+    st.session_state["extraction_api_key"] = ""
+
+
+st.sidebar.title("绿债研究台")
+st.sidebar.caption("链路组 2 · 发行模拟")
+st.sidebar.subheader("运行方式")
+use_llm = st.sidebar.checkbox(
+    "启用 LLM API 决策", value=False, on_change=clear_api_key,
+    help="使用自己的模型服务账户，调用费用由该账户承担。",
 )
+api_key = None
+if use_llm:
+    api_key = st.sidebar.text_input(
+        "你的 API Key", type="password", key="user_api_key",
+        placeholder="输入你自己的密钥",
+        help="密钥仅保留在当前页面会话内存中，用于本次模型请求。",
+    ).strip()
+    st.sidebar.button("清除密钥", on_click=clear_api_key, width="stretch")
+    from urllib.parse import urlparse
+    provider = urlparse(config.LLM_BASE_URL).hostname or "已配置的模型服务"
+    st.sidebar.caption(f"发送到 {provider} · {config.DEFAULT_MODEL_NAME}")
+    st.sidebar.caption("输入后点击运行才会请求模型。重新连接页面时可能需要再次输入。")
+else:
+    st.sidebar.caption("使用内置规则与概率判断，可直接运行。")
 
-regulator_type = st.sidebar.selectbox(
-    "监管审核机构类型",
-    options=list(REGULATOR_TYPES.keys()),
-    format_func=lambda x: REGULATOR_TYPES[x]["name"],
-    index=1,
-)
-
-underwriter_type = st.sidebar.selectbox(
-    "承销商类型",
-    options=list(UNDERWRITER_TYPES.keys()),
-    format_func=lambda x: UNDERWRITER_TYPES[x]["name"],
-    index=1,
-)
-
-investor_type = st.sidebar.selectbox(
-    "投资机构类型",
-    options=list(INVESTOR_TYPES.keys()),
-    format_func=lambda x: INVESTOR_TYPES[x]["name"],
-    index=2,
-)
-
-use_llm = st.sidebar.checkbox("启用 LLM API 决策", value=False,
-                              help="勾选后将调用 LLM API 进行决策（消耗 tokens），不勾选则使用规则引擎")
+with st.sidebar.expander("自定义场景参数", expanded=False):
+    st.caption("用于单次模拟和单个自定义场景。P0–P6 使用预设参数。")
+    certifier_type = st.selectbox(
+        "绿色认证机构类型", options=list(CERTIFIER_TYPES),
+        format_func=lambda value: CERTIFIER_TYPES[value]["name"], index=1,
+    )
+    regulator_type = st.selectbox(
+        "监管审核机构类型", options=list(REGULATOR_TYPES),
+        format_func=lambda value: REGULATOR_TYPES[value]["name"], index=1,
+    )
+    underwriter_type = st.selectbox(
+        "承销商类型", options=list(UNDERWRITER_TYPES),
+        format_func=lambda value: UNDERWRITER_TYPES[value]["name"], index=1,
+    )
+    investor_type = st.selectbox(
+        "投资机构类型", options=list(INVESTOR_TYPES),
+        format_func=lambda value: INVESTOR_TYPES[value]["name"], index=2,
+    )
 
 # ---- 企业数据源 ----
 st.sidebar.markdown("---")
-st.sidebar.subheader("📂 企业数据源")
+st.sidebar.subheader("企业数据")
+st.sidebar.caption("选择来源 → 核对字段 → 运行模拟")
 
 data_source = st.sidebar.radio(
     "选择数据来源",
-    options=["示例数据（随机生成）", "上传第一组企业名单"],
-    horizontal=True,
+    options=["示例数据（随机生成）", "上传第一组企业名单", "Word / 文字提取"],
     key="data_source_radio",
 )
 
-using_group_list = data_source == "上传第一组企业名单"
+using_group_list = data_source != "示例数据（随机生成）"
 uploaded_enterprises = []
 uploaded_df = None
-if using_group_list:
+if data_source == "上传第一组企业名单":
     uploaded_file = st.sidebar.file_uploader(
         "上传 CSV 或 Excel 文件",
         type=["csv", "xlsx"],
@@ -148,6 +186,75 @@ if using_group_list:
             st.sidebar.error(f"文件读取失败：{e}")
     else:
         st.sidebar.info("请先上传第一组企业名单")
+elif data_source == "Word / 文字提取":
+    st.sidebar.caption("需要企业名称／编号、发行决策、评级、负债率、绿色程度和三项材料状态。")
+    with st.sidebar.expander("查看完整字段清单", expanded=False):
+        st.caption("尽量提供下列字段。缺失时仍可试算，系统会标出待核实项。资产负债率可写 65% 或 0.65。")
+        for field in ["name", "code", *EXTRACTION_DEFAULTS]:
+            label = FIELD_LABELS[field]
+            st.markdown(f"- **{label}** `{field}`")
+        st.caption("可选补充：企业性质、行业、规模、发行规模、合规评分、项目目录、重大违规、市场基准收益率和定价利差等。")
+    source_doc = st.sidebar.file_uploader(
+        "上传 Word 文档（.docx）", type=["docx"],
+        help="支持正文和表格；旧版 .doc 请先在 Word 中另存为 .docx。",
+        key="source_docx",
+    )
+    source_text = st.sidebar.text_area(
+        "或者粘贴企业文字", height=150,
+        placeholder="企业名称：示例公司；信用评级：AA；资产负债率：65%；绿色程度：中……",
+        help="可同时上传文档和粘贴文字。多家企业请逐家分段，或在 Word 表格中每行写一家。",
+    )
+    extract_with_llm = st.sidebar.checkbox(
+        "使用 LLM 辅助提取",
+        help="点击提取时才会将文档文字发送给模型服务。关闭时只在本地按字段标签提取；可独立于模拟决策模式使用。",
+    )
+    extraction_key = api_key
+    if extract_with_llm:
+        if not use_llm:
+            extraction_key = st.sidebar.text_input(
+                "提取用 API Key", type="password", key="extraction_api_key",
+                placeholder="输入你自己的密钥",
+                help="只用于本次文档提取，保存在当前页面会话内存中。",
+            ).strip()
+            st.sidebar.button("清除提取密钥", on_click=clear_extraction_key, width="stretch")
+        from urllib.parse import urlparse
+        st.sidebar.caption(f"点击提取后发送文字到 {urlparse(config.LLM_BASE_URL).hostname or '已配置的模型服务'}")
+    content_bytes = source_doc.getvalue() if source_doc is not None else b""
+    source_signature = hashlib.sha256(content_bytes + source_text.encode("utf-8")).hexdigest()
+    if st.sidebar.button("提取并转换", type="primary", width="stretch"):
+        try:
+            document_text = docx_to_text(content_bytes) if content_bytes else ""
+            combined_text = "\n\n".join(x for x in (document_text, source_text) if x.strip())
+            review_df, processed_df, missing, notices = convert_text(
+                combined_text, use_llm=extract_with_llm, api_key=extraction_key,
+            )
+            st.session_state.text_import = (
+                source_signature, review_df, processed_df, missing, notices,
+            )
+        except ValueError as error:
+            st.session_state.pop("text_import", None)
+            st.sidebar.error(str(error))
+    converted = st.session_state.get("text_import")
+    if converted and converted[0] == source_signature:
+        _, review_df, processed_df, missing, notices = converted
+        uploaded_df = processed_df
+        uploaded_enterprises = load_reviewed_enterprises(processed_df, missing)
+        st.sidebar.success(f"已提取 {len(review_df)} 家企业，{len(uploaded_enterprises)} 家进入模拟")
+        for notice in notices:
+            st.sidebar.warning(notice)
+        st.sidebar.caption("转换文件包含全部提取记录及待核实字段；分析仅使用愿意发行的企业。")
+        st.sidebar.download_button(
+            "下载 CSV", data=export_csv(review_df), file_name="提取企业数据.csv",
+            mime="text/csv", width="stretch",
+        )
+        st.sidebar.download_button(
+            "下载 Excel", data=export_excel(review_df), file_name="提取企业数据.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch",
+        )
+    else:
+        st.sidebar.info("上传文档或粘贴文字后，点击“提取并转换”")
+
+if using_group_list:
     simulation_rounds = len(uploaded_enterprises)
 else:
     simulation_rounds = st.sidebar.slider("模拟轮数", 50, 500, 200, 50)
@@ -156,8 +263,8 @@ simulation_disabled = using_group_list and not uploaded_enterprises
 st.sidebar.markdown("---")
 st.sidebar.caption("规则模式使用内置假设和概率判断，无需调用模型。")
 st.sidebar.caption("LLM 模式调用模型，调用或解析失败的环节会降级到规则判断。")
-if use_llm and config.LLM_API_KEY in ("", "1"):
-    st.sidebar.error("请先在 .env 中配置有效的 LLM_API_KEY。")
+if use_llm and (not api_key or api_key == "1"):
+    st.sidebar.info("输入自己的 API Key 后即可运行 LLM 模拟。")
     simulation_disabled = True
 
 
@@ -165,17 +272,19 @@ if use_llm and config.LLM_API_KEY in ("", "1"):
 # 主页面
 # ============================================================
 
-st.title("🌿 绿色债券发行多主体智能体链路模拟系统")
-st.markdown("模拟企业从「有发行意愿」到「发行成功/失败」的完整链路，识别核心梗阻点")
+st.title("绿色债券发行模拟")
+st.markdown("从发行意愿到发行结果，查看每个环节的判断与阻碍。")
 
 # ---- 数据预览 ----
 enterprises = uploaded_enterprises
-with st.expander("📋 当前数据预览", expanded=True):
+with st.expander("企业名单与数据预览", expanded=False):
     if using_group_list:
         if uploaded_df is None:
-            st.info("上传通过校验的企业名单后可预览")
+            st.info("导入企业名单或提取 Word／文字后可预览")
         else:
             st.dataframe(uploaded_df, hide_index=True, width="stretch")
+            if data_source == "Word / 文字提取":
+                st.caption("“待核实字段”是原文没有提供的信息。对应模拟值是试算占位值，请结合原文核对。")
     else:
         count_col, button_col = st.columns(2)
         sample_count = int(count_col.number_input(
@@ -204,7 +313,12 @@ with st.expander("📋 当前数据预览", expanded=True):
             },
         )
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 单次模拟", "📊 批量实验", "📈 统计与文本分析", "📋 发行链路说明"])
+overview = st.columns(3)
+overview[0].metric("当前企业", f"{len(enterprises)} 家")
+overview[1].metric("数据来源", "Word / 文字" if data_source == "Word / 文字提取" else ("第一组名单" if using_group_list else "合成示例"))
+overview[2].metric("决策方式", "LLM + 硬规则" if use_llm else "规则模拟")
+st.write("")
+tab1, tab2, tab3, tab4 = st.tabs(["单次模拟", "批量实验", "统计与文本分析", "流程与说明"])
 
 
 # ---- Tab 1: 单次模拟 ----
@@ -217,7 +331,7 @@ with tab1:
             format_func=lambda index: f"{enterprises[index]['code']} · {enterprises[index]['name']}",
         )
 
-    if st.button("▶️ 运行一次模拟", type="primary", disabled=simulation_disabled):
+    if st.button("运行一次模拟", type="primary", disabled=simulation_disabled):
         st.session_state.single_result = run_single_simulation(
             enterprise=enterprises[selected_index],
             certifier_type=certifier_type,
@@ -225,6 +339,7 @@ with tab1:
             underwriter_type=underwriter_type,
             investor_type=investor_type,
             use_llm=use_llm,
+            api_key=api_key,
         )
 
     if "single_result" in st.session_state:
@@ -297,7 +412,7 @@ with tab2:
         if st.button("运行 P0–P6", type="primary", disabled=simulation_disabled):
             experiment_id = f"preset_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}"
             with st.spinner("正在运行 P0–P6 场景…"):
-                scenario_results = run_preset_experiment(enterprises, use_llm=use_llm)
+                scenario_results = run_preset_experiment(enterprises, use_llm=use_llm, api_key=api_key)
                 scenario_stats = {
                     scenario_id: analyze_results(results)
                     for scenario_id, results in scenario_results.items()
@@ -310,11 +425,11 @@ with tab2:
                     f"{experiment_id}_{scenario_id}": results
                     for scenario_id, results in scenario_results.items()
                 })
-            st.session_state.preset_summary = (experiment_id, scenario_stats, using_group_list, use_llm)
+            st.session_state.preset_summary = (experiment_id, scenario_stats, data_source, use_llm)
 
         if "preset_summary" in st.session_state:
-            experiment_id, scenario_stats, used_group_list, used_llm = st.session_state.preset_summary
-            source = "第一组企业名单" if used_group_list else "随机示例企业"
+            experiment_id, scenario_stats, used_source, used_llm = st.session_state.preset_summary
+            source = used_source
             decision_mode = "LLM 模式" if used_llm else "规则模式"
             st.caption(f"最近一次场景对照 · {source} · {decision_mode} · {experiment_id}")
             baseline = scenario_stats["P0"]
@@ -340,7 +455,7 @@ with tab2:
     if not use_presets and using_group_list and uploaded_enterprises:
         st.caption(f"本场景将对名单中的 {simulation_rounds} 家企业各运行一次。")
 
-    if not use_presets and st.button("🚀 开始批量实验", type="primary", disabled=simulation_disabled):
+    if not use_presets and st.button("开始批量实验", type="primary", disabled=simulation_disabled):
         with st.spinner(f"正在运行 {simulation_rounds} 次模拟实验..."):
             scenario = {
                 "certifier_type": certifier_type,
@@ -354,6 +469,7 @@ with tab2:
                 scenario=scenario,
                 rounds=simulation_rounds,
                 use_llm=use_llm,
+                api_key=api_key,
                 each_enterprise_once=using_group_list,
             )
 
@@ -537,54 +653,21 @@ with tab3:
 with tab4:
     st.subheader("绿色债券发行全流程")
 
+    st.markdown("**数据准备**：使用 CSV／Excel 名单，或上传 `.docx`／粘贴文字，提取后核对待核实字段。转换后的 CSV／Excel 可下载；缺失字段使用明确标注的模拟占位值继续试算。明确不发行的企业不进入链路。")
+
+    flow = [
+        ("企业发起", "核对绿色项目证明、财务报告和融资方案。"),
+        ("绿色认证", "检查目录匹配、材料真实性和项目绿色程度。"),
+        ("监管审核", "评估财务、合规与信息披露，读取认证意见。"),
+        ("承销定价", "决定是否承销，形成票面利率和路演信息。"),
+        ("投资认购", "综合评估风险和收益，判断认购是否足额。"),
+    ]
+    for column, (title, description) in zip(st.columns(5), flow):
+        with column.container(border=True):
+            st.markdown(f"**{title}**")
+            st.write(description)
+    st.caption("各环节依次执行。拒绝时记录失败并终止，足额认购后记为发行成功。")
     st.markdown("""
-    ### 模型采用的发行链路
-
-    ```
-    企业发起申请
-        │
-        ▼
-    ┌─────────────────────────────┐
-    │ 环节1：企业发起              │
-    │ 提交绿色项目证明、财务报告、   │
-    │ 融资方案等发行材料            │
-    │ 判定：材料完整性             │
-    └─────────────┬───────────────┘
-                  │ ✅ 材料完整
-                  ▼
-    ┌─────────────────────────────┐
-    │ 环节2：绿色认证机构审核      │
-    │ 审核项目绿色程度、材料真实性  │
-    │ 类型：严格型/中等型/宽松型    │
-    └─────────────┬───────────────┘
-                  │ ✅ 审核通过
-                  ▼
-    ┌─────────────────────────────┐
-    │ 环节3：监管部门审核          │
-    │ 审核发行资质、融资方案合规性  │
-    │ 类型：严监管/中监管/松监管    │
-    └─────────────┬───────────────┘
-                  │ ✅ 审核通过
-                  ▼
-    ┌─────────────────────────────┐
-    │ 环节4：承销商定价&路演       │
-    │ 确定发行利率、开展路演        │
-    │ 类型：激进型/稳健型/保守型    │
-    └─────────────┬───────────────┘
-                  │ ✅ 定价完成
-                  ▼
-    ┌─────────────────────────────┐
-    │ 环节5：投资机构认购          │
-    │ 决定是否认购及认购规模        │
-    │ 类型：绿色偏好/收益偏好/均衡  │
-    └─────────────┬───────────────┘
-                  │
-          ┌───────┴───────┐
-          ▼               ▼
-     认购达标          认购不足
-     ✅ 发行成功       ❌ 发行失败
-    ```
-
     ### 核心判定逻辑
     - **硬规则**：材料、目录及财务等程序检查。80% 负债率和连续两年盈利是当前模拟假设，正式实验需核验适用口径
     - **概率性规则**：基于主体类型+企业特征的概率判定

@@ -11,7 +11,7 @@
 
 两种模式：
 - 规则引擎模式（use_llm=False）：纯概率表驱动，无需 API Key
-- LLM 模式（use_llm=True）：调用大模型进行智能决策，需配置 .env + API Key
+- LLM 模式（use_llm=True）：调用大模型进行智能决策，需在本次调用中传入使用者的 API Key
 """
 
 import json
@@ -227,7 +227,7 @@ def validate_enterprise_dataframe(df: "pd.DataFrame", *, willing_only: bool = Fa
 
     # --- 1. 列名标准化 ---
     df.columns = [str(c).strip() for c in df.columns]
-    df.rename(columns=COLUMN_ALIASES, inplace=True)
+    df = df.rename(columns=COLUMN_ALIASES)
 
     if df.columns.has_duplicates:
         duplicates = df.columns[df.columns.duplicated()].unique()
@@ -407,6 +407,7 @@ def run_single_simulation(
     use_llm: bool = False,
     *,
     rule_seed: Optional[int] = None,
+    api_key: Optional[str] = None,
 ) -> Dict:
     """
     执行一次完整的绿色债券发行链路模拟
@@ -422,6 +423,9 @@ def run_single_simulation(
     Returns:
         完整的模拟结果记录
     """
+    if use_llm and (not isinstance(api_key, str) or not api_key.strip() or api_key.strip() == "1"):
+        raise ValueError("LLM 模式需要输入你自己的 API Key")
+    api_key = api_key.strip() if api_key else None
     result = {
         "simulation_time": datetime.now().isoformat(),
         "enterprise_code": enterprise["code"],
@@ -465,9 +469,10 @@ def run_single_simulation(
         else [random.Random(f"{rule_seed}:{stage}") for stage in range(4)]
     )
     simulate = _run_llm_simulation if use_llm else _run_rules_simulation
+    credentials = {"api_key": api_key} if use_llm else {}
     return simulate(
         enterprise, result, certifier_type, regulator_type,
-        underwriter_type, investor_type, rule_rngs,
+        underwriter_type, investor_type, rule_rngs, **credentials,
     )
 
 
@@ -580,13 +585,15 @@ def _investment_decision(payload, issue_scale):
     }
 
 
-def _llm_stage(call, parse, fallback, rejection=None):
+def _llm_stage(call, parse, fallback, rejection=None, *, api_key=None):
     if rejection:
         return {"passed": False, "reason": rejection, "detail": {
             "source": "rigid_rule", "decision": "rejected", "rigid_reject": True,
         }}
     try:
         raw = call()
+        if api_key:
+            raw = raw.replace(api_key, "[密钥已隐藏]")
         ok, error, payload = _parse_llm_result(raw, {})
         if not ok:
             raise ValueError(error)
@@ -595,15 +602,16 @@ def _llm_stage(call, parse, fallback, rejection=None):
             **detail, "source": "llm", "llm_raw_response": raw[:2000],
         }}
     except Exception as error:
+        message = str(error).replace(api_key, "[密钥已隐藏]") if api_key else str(error)
         passed, reason, detail = fallback()
         return {"passed": passed, "reason": reason, "detail": {
-            **detail, "source": "fallback_rules", "error": str(error)[:500],
+            **detail, "source": "fallback_rules", "error": message[:500],
         }}
 
 
 def _run_llm_simulation(
     enterprise: Dict, result: Dict, certifier_type: str, regulator_type: str,
-    underwriter_type: str, investor_type: str, rule_rngs: list,
+    underwriter_type: str, investor_type: str, rule_rngs: list, *, api_key: str,
 ) -> Dict:
     from agents import EnterpriseAgent, CertifierAgent, RegulatorAgent, UnderwriterAgent, InvestorAgent
 
@@ -618,24 +626,24 @@ def _run_llm_simulation(
     summaries = {}
     stages = [
         ("stage_2_certifier", "2_green_certification",
-         lambda: CertifierAgent(certifier_type).review(context),
+         lambda: CertifierAgent(certifier_type, api_key=api_key).review(context),
          _review_decision,
          lambda: certifier_check(enterprise, certifier_type, rng=rule_rngs[0]),
          certification_rejection),
         ("stage_3_regulator", "3_regulatory_review",
-         lambda: RegulatorAgent(regulator_type).review(context, summaries["stage_2_certifier"]),
+         lambda: RegulatorAgent(regulator_type, api_key=api_key).review(context, summaries["stage_2_certifier"]),
          _review_decision,
          lambda: regulator_check(enterprise, regulator_type, rng=rule_rngs[1]),
          regulatory_rejection),
         ("stage_4_underwriter", "4_underwriter_pricing",
-         lambda: UnderwriterAgent(underwriter_type).price_and_roadshow(
+         lambda: UnderwriterAgent(underwriter_type, api_key=api_key).price_and_roadshow(
              context, summaries["stage_2_certifier"], summaries["stage_3_regulator"],
          ),
          lambda payload: _underwriting_decision(payload, enterprise),
          lambda: underwriter_price(enterprise, underwriter_type, rng=rule_rngs[2]),
          None),
         ("stage_5_investor", "5_investor_subscription",
-         lambda: InvestorAgent(investor_type).make_decision(
+         lambda: InvestorAgent(investor_type, api_key=api_key).make_decision(
              context, summaries["stage_4_underwriter"], pricing["final_rate"],
              certifier_result=summaries["stage_2_certifier"],
              regulator_result=summaries["stage_3_regulator"],
@@ -649,7 +657,7 @@ def _run_llm_simulation(
     ]
     pricing = {}
     for key, failure_stage, call, parse, fallback, reject in stages:
-        stage = _llm_stage(call, parse, fallback, reject(enterprise) if reject else None)
+        stage = _llm_stage(call, parse, fallback, reject(enterprise) if reject else None, api_key=api_key)
         result[key] = stage
         if not stage["passed"]:
             result.update(final_result="failed", failure_stage=failure_stage, failure_reason=stage["reason"])
@@ -674,6 +682,7 @@ def run_batch_simulation(
     use_llm: bool = False,
     *,
     each_enterprise_once: bool = False,
+    api_key: Optional[str] = None,
 ) -> List[Dict]:
     """
     批量运行模拟实验
@@ -704,6 +713,7 @@ def run_batch_simulation(
             underwriter_type=scenario.get("underwriter_type", "moderate"),
             investor_type=scenario.get("investor_type", "balanced"),
             use_llm=use_llm,
+            api_key=api_key,
         )
         results.append(sim_result)
 
@@ -822,6 +832,8 @@ if __name__ == "__main__":
     import sys
 
     use_llm = "--llm" in sys.argv
+    from llm_client import prompt_api_key
+    api_key = prompt_api_key() if use_llm else None
     print("=" * 60)
     print(f"绿色债券发行链路模拟引擎 - 单次测试 ({'LLM模式' if use_llm else '规则引擎模式'})")
     print("=" * 60)
@@ -838,6 +850,7 @@ if __name__ == "__main__":
         underwriter_type="moderate",
         investor_type="balanced",
         use_llm=use_llm,
+        api_key=api_key,
     )
 
     print(f"\n模拟结果：{'✅ 成功' if result['final_result'] == 'success' else '❌ 失败'}")

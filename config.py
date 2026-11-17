@@ -1,6 +1,6 @@
 """
 全局配置模块
-从 .env 加载 LLM API 密钥、模型名称等配置
+从 .env 加载模型地址、名称等非密钥配置
 """
 import os
 from pathlib import Path
@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ===== LLM API 配置 =====
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
 DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "deepseek-chat")
 

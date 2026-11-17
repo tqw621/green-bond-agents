@@ -43,13 +43,9 @@ def check_config():
     """检查配置"""
     try:
         import config
-        if not config.LLM_API_KEY or config.LLM_API_KEY == "1":
-            print("⚠️  警告: LLM_API_KEY 未配置或为默认值")
-            print("  规则引擎模式不需要 API Key，如需 LLM 决策请在 .env 中设置有效的 API Key")
-        else:
-            print("✅ API Key 已配置")
-            print(f"   Base URL: {config.LLM_BASE_URL}")
-            print(f"   Model: {config.DEFAULT_MODEL_NAME}")
+        print(f"模型服务：{config.LLM_BASE_URL}")
+        print(f"模型名称：{config.DEFAULT_MODEL_NAME}")
+        print("LLM 模式由使用者在页面或终端输入自己的 API Key。")
         return True
     except ImportError:
         print("❌ 配置文件 config.py 不存在")
@@ -79,8 +75,6 @@ def run_preset_cli():
         parser.error("输出文件已存在，请选择新文件名")
     if not args.output.parent.is_dir():
         parser.error("输出文件所在目录不存在")
-    if args.llm and config.LLM_API_KEY in ("", "1"):
-        parser.error("LLM 模式需要先在本地配置可用的 LLM_API_KEY")
 
     try:
         if args.preset.suffix.lower() == ".csv":
@@ -98,7 +92,9 @@ def run_preset_cli():
         parser.error(message)
 
     print(message, flush=True)
-    scenarios = run_preset_experiment(load_enterprises_from_df(processed), use_llm=args.llm, seed=args.seed)
+    from llm_client import prompt_api_key
+    api_key = prompt_api_key() if args.llm else None
+    scenarios = run_preset_experiment(load_enterprises_from_df(processed), use_llm=args.llm, seed=args.seed, api_key=api_key)
     summary = {}
     for name, records in scenarios.items():
         stats = analyze_results(records)
@@ -194,12 +190,14 @@ def main():
         print(f"已生成 {len(enterprises)} 家样本企业")
         print(f"开始模拟...\n")
 
+        from llm_client import prompt_api_key
+        api_key = prompt_api_key() if use_llm else None
         results = run_batch_simulation(enterprises, {
             "certifier_type": "moderate",
             "regulator_type": "moderate",
             "underwriter_type": "moderate",
             "investor_type": "balanced",
-        }, rounds=rounds, use_llm=use_llm)
+        }, rounds=rounds, use_llm=use_llm, api_key=api_key)
 
         stats = analyze_results(results)
         print(f"\n{'=' * 50}")

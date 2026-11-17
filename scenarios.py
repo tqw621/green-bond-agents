@@ -27,7 +27,7 @@ PRESET_SCENARIOS = {
 }
 
 
-def run_preset_experiment(enterprises, *, use_llm=False, seed=config.RANDOM_SEED):
+def run_preset_experiment(enterprises, *, use_llm=False, seed=config.RANDOM_SEED, api_key=None):
     """在同一企业池上运行 P0–P6。种子用于规则判断及 LLM 降级后的规则判断。"""
     if not enterprises:
         raise ValueError("预设场景实验至少需要一家企业")
@@ -43,7 +43,7 @@ def run_preset_experiment(enterprises, *, use_llm=False, seed=config.RANDOM_SEED
             {
                 **run_single_simulation(
                     enterprise, **{**BASELINE, **overrides},
-                    use_llm=use_llm, rule_seed=rule_seeds[enterprise["code"]],
+                    use_llm=use_llm, rule_seed=rule_seeds[enterprise["code"]], api_key=api_key,
                 ),
                 "experiment_seed": seed,
             }

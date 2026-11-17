@@ -93,10 +93,10 @@ CERTIFIER_TYPES = {
 class CertifierAgent:
     """绿色认证机构智能体"""
 
-    def __init__(self, certifier_type: str = "moderate", model: str = None):
+    def __init__(self, certifier_type: str = "moderate", model: str = None, *, api_key: str = None):
         self.certifier_type = certifier_type
         self.type_info = CERTIFIER_TYPES.get(certifier_type, CERTIFIER_TYPES["moderate"])
-        self.llm = LLMClient(model=model)
+        self.llm = LLMClient(model=model, api_key=api_key)
 
     def get_system_prompt(self) -> str:
         return f"""你是一名{self.type_info['name']}的审核员。
@@ -146,10 +146,10 @@ REGULATOR_TYPES = {
 class RegulatorAgent:
     """监管审核机构智能体"""
 
-    def __init__(self, regulator_type: str = "moderate", model: str = None):
+    def __init__(self, regulator_type: str = "moderate", model: str = None, *, api_key: str = None):
         self.regulator_type = regulator_type
         self.type_info = REGULATOR_TYPES.get(regulator_type, REGULATOR_TYPES["moderate"])
-        self.llm = LLMClient(model=model)
+        self.llm = LLMClient(model=model, api_key=api_key)
 
     def get_system_prompt(self) -> str:
         return f"""你是一名{self.type_info['name']}的审核官员。
@@ -201,10 +201,10 @@ UNDERWRITER_TYPES = {
 class UnderwriterAgent:
     """承销商智能体"""
 
-    def __init__(self, underwriter_type: str = "moderate", model: str = None):
+    def __init__(self, underwriter_type: str = "moderate", model: str = None, *, api_key: str = None):
         self.underwriter_type = underwriter_type
         self.type_info = UNDERWRITER_TYPES.get(underwriter_type, UNDERWRITER_TYPES["moderate"])
-        self.llm = LLMClient(model=model)
+        self.llm = LLMClient(model=model, api_key=api_key)
 
     def get_system_prompt(self) -> str:
         return f"""你是一名{self.type_info['name']}的债券承销负责人。
@@ -258,10 +258,10 @@ INVESTOR_TYPES = {
 class InvestorAgent:
     """投资机构智能体"""
 
-    def __init__(self, investor_type: str = "balanced", model: str = None):
+    def __init__(self, investor_type: str = "balanced", model: str = None, *, api_key: str = None):
         self.investor_type = investor_type
         self.type_info = INVESTOR_TYPES.get(investor_type, INVESTOR_TYPES["balanced"])
-        self.llm = LLMClient(model=model)
+        self.llm = LLMClient(model=model, api_key=api_key)
 
     def get_system_prompt(self) -> str:
         return f"""你是一名{self.type_info['name']}的投资经理。
